@@ -135,9 +135,9 @@ func WriteMP3WithID3v2(audioData []byte, filename string, mdMap map[string]inter
 	return nil
 }
 
-func decodeJSON(jsonString string) (map[string]interface{}, error) {
+func decodeJSON(jsonString []byte) (map[string]interface{}, error) {
 	var result map[string]interface{}
-	err := json.Unmarshal([]byte(jsonString), &result)
+	err := json.Unmarshal(jsonString, &result)
 	if err != nil {
 		fmt.Println("Error converting md to map:", err)
 		return nil, err
@@ -244,12 +244,12 @@ func writeBytesToJPEG(data []byte, filename string) error {
 	return nil
 }
 
-func mataData(inputStream io.Reader) (string, error) {
+func mataData(inputStream io.Reader) ([]byte, error) {
 	lenBytes := make([]byte, 4)
 	_, err := inputStream.Read(lenBytes)
 	if err != nil {
 		fmt.Println("Error reading md length:", err)
-		return "", err
+		return nil, err
 	}
 
 	headerLen := binary.LittleEndian.Uint32(lenBytes)
@@ -258,14 +258,14 @@ func mataData(inputStream io.Reader) (string, error) {
 	_, err = inputStream.Read(headerBytes)
 	if err != nil {
 		fmt.Println("Error reading md body:", err)
-		return "", err
+		return nil, err
 	}
 
 	// Skip CRC (4 bytes) and unused Gap (5 bytes)
 	discardBytes := make([]byte, 9)
 	if _, err := inputStream.Read(discardBytes); err != nil {
 		fmt.Println("Error skipping CRC:", err)
-		return "", err
+		return nil, err
 	}
 
 	for i := 0; i < len(headerBytes); i++ {
@@ -279,15 +279,14 @@ func mataData(inputStream io.Reader) (string, error) {
 	decodedBytes, err := base64.StdEncoding.DecodeString(string(headerBytes))
 	if err != nil {
 		fmt.Println("Error decoding md:", err)
-		return "", err
+		return nil, err
 	}
 
 	// Perform AES decryption here if AES package is available in your code
 	decodedBytes, _ = decryptAES(decodedBytes, META_KEY)
 	// Remove the prefix "music:" (6 bytes) to get JSON
 	jsonData := decodedBytes[6:]
-
-	return string(jsonData), nil
+	return jsonData, nil
 }
 
 func cr4Key(inputStream io.Reader) ([]byte, error) {
@@ -309,7 +308,6 @@ func cr4Key(inputStream io.Reader) ([]byte, error) {
 		key[i] ^= 0x64
 	}
 	key, _ = decryptAES(key, CR4_KEY)
-	key = key[0 : len(key)-int(key[len(key)-1])][17:]
 	return key, nil
 }
 
@@ -326,7 +324,13 @@ func decryptAES(data, key []byte) ([]byte, error) {
 		cipher.Decrypt(decrypted[bs:be], data[bs:be])
 	}
 
-	return decrypted, nil
+	return unpad(decrypted), nil
+}
+
+func unpad(src []byte) []byte {
+	length := len(src)
+	unpadding := int(src[length-1])
+	return src[:length-unpadding]
 }
 
 func magicHeader(inputStream io.Reader) error {
